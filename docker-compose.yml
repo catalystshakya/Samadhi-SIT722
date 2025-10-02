@@ -90,9 +90,9 @@ services:
       - "8000:8000" # Map container port 8000 to host port 8000 (as per your request)
     environment:
       POSTGRES_HOST: product_db # Connects to the 'product_db' service within Docker network
-      AZURE_STORAGE_ACCOUNT_NAME: thishakyastg # Replace with your Azure Storage account name
-      AZURE_STORAGE_ACCOUNT_KEY: xtFHdHE/vVE1I9oEPSPtoLyKQpUqXjp+W6ljM0lhKG1tLy5nfFSivdAJnVEaodrUDd8GaIxIaWS++AStGKI3Kw== # Replace with your Azure Storage account key
-      AZURE_STORAGE_CONTAINER_NAME: task6 # Replace with your Azure Storage container name
+      AZURE_STORAGE_ACCOUNT_NAME: <your_storage_account_name> # Replace with your Azure Storage account name
+      AZURE_STORAGE_ACCOUNT_KEY: <your_storage_account_key> # Replace with your Azure Storage account key
+      AZURE_STORAGE_CONTAINER_NAME: <your_container_name> # Replace with your Azure Storage container name
       AZURE_SAS_TOKEN_EXPIRY_HOURS: 24
       RABBITMQ_HOST: rabbitmq # Internal Docker network hostname for RabbitMQ
       RABBITMQ_PORT: 5672
@@ -100,6 +100,7 @@ services:
       RABBITMQ_PASS: guest
     depends_on:
       product_db:
+
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
