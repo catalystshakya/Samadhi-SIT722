@@ -13,7 +13,7 @@ on:
 
 env:
   STAGING_CLUSTER_NAME: "staging-aks-${{ github.run_id }}"
-  STAGING_RG: "staging-rg-${{ github.run_id }}"
+  STAGING_RG: "${{ secrets.ACR_RESOURCE_GROUP }}"  # ← Use existing RG
   ACR_NAME: ${{ secrets.AZURE_CONTAINER_REGISTRY }}
 
 
@@ -52,19 +52,20 @@ jobs:
       with:
         creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-    - name: Create Staging Resource Group
-      run: |
-        az group create \
-          --name ${{ env.STAGING_RG }} \
-          --location australiaeast \
-          --tags Environment=Staging Temporary=true
+   # - name: Create Staging Resource Group
+   #  run: |
+    #    az group create \
+   #       --name $ env.STAGING_RG }} \
+    #      --location australiaeast \
+     #     --tags Environment=Staging Temporary=true
 
-    - name: Create Temporary Staging AKS Cluster
+    - name: Create Temporary Staging AKS Cluster in Existing RG
       run: |
         az aks create \
           --resource-group ${{ env.STAGING_RG }} \
           --name ${{ env.STAGING_CLUSTER_NAME }} \
           --node-count 1 \
+          --node-vm-size Standard_D2s_v3 \
           --enable-managed-identity \
           --attach-acr ${{ env.ACR_NAME }} \
           --generate-ssh-keys \
