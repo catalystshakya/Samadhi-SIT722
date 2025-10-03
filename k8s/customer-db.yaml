@@ -3,7 +3,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: customer-db-deployment-w05-aks
+  name: customer-db
   labels:
     app: customer-db
 spec:
@@ -25,17 +25,17 @@ spec:
         - name: POSTGRES_DB
           valueFrom:
             configMapKeyRef:
-              name: ecomm-config-w05-aks
+              name: ecomm-config-w08e1
               key: CUSTOMERS_DB_NAME
         - name: POSTGRES_USER
           valueFrom:
             secretKeyRef:
-              name: ecomm-secrets-w05-aks
+              name: ecomm-secrets-w08e1
               key: POSTGRES_USER
         - name: POSTGRES_PASSWORD
           valueFrom:
             secretKeyRef:
-              name: ecomm-secrets-w05-aks
+              name: ecomm-secrets-w08e1
               key: POSTGRES_PASSWORD
 ---
 apiVersion: v1
