@@ -3,7 +3,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: customer-service
+  name: customer-service-w08e1
   labels:
     app: customer-service
 spec:
