@@ -4,15 +4,16 @@ on:
   # linking to  trigger this CD workflow AFTER the Stage 1  workflows finishes
   workflow_run:
     # Name of the workflow that must finish first
-     workflows: 
+    workflows: 
       - "Stage 1 - Backend CI (Testing Branch)"
       - "Stage 1 - Frontend CI (Testing Branch)"
      # Only trigger when that workflow completes 
-     types:
+    types:
       - completed
      # Only trigger if the CI workflow ran on the testing branch
-     branches:
+    branches:
       - testing # Only automatically deploy to production when the changes have been thoroughly tested and successfully merged into the main branch
+
 
 env:
   STAGING_CLUSTER_NAME: "staging-aks-${{ github.run_id }}"
@@ -24,10 +25,11 @@ env:
 jobs:
   deploy_to_staging: # CRITICAL: Only run this job if the stage one CI workflow was SUCCESSFUL
     # This prevents auto-deploying if tests failed
-    if: >-
-      github.event.workflow_run.conclusion == 'success' && 
-      (github.event.workflow_run.name == 'Stage 1 - Backend CI (Testing Branch)' || 
-       github.event.workflow_run.name == 'Stage 1 - Frontend CI (Testing Branch)')
+    if: #>-
+      github.event.workflow_run.conclusion == 'success' 
+      #&& 
+      #(github.event.workflow_run.name == 'Stage 1 - Backend CI (Testing Branch)' || 
+      # github.event.workflow_run.name == 'Stage 1 - Frontend CI (Testing Branch)')
     runs-on: ubuntu-latest
     environment: Staging
     
