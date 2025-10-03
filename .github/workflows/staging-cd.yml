@@ -54,7 +54,7 @@ jobs:
 
    # - name: Create Staging Resource Group
    #  run: |
-    #    az group create \
+    #     az group create \
    #       --name $ env.STAGING_RG }} \
     #      --location australiaeast \
      #     --tags Environment=Staging Temporary=true
