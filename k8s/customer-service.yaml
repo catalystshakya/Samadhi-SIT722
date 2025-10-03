@@ -44,7 +44,7 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: customer-service
+  name: customer-service-w08e1
   labels:
     app: customer-service
 spec:
