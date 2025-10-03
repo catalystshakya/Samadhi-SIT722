@@ -25,17 +25,29 @@ env:
 jobs:
   deploy_to_staging: # CRITICAL: Only run this job if the stage one CI workflow was SUCCESSFUL
     # This prevents auto-deploying if tests failed
-    if: #>-
-      github.event.workflow_run.conclusion == 'success' 
+    if: |
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'testing'
+    runs-on: ubuntu-latest
+    environment: Staging  
+    
+      #>-
+      #github.event.workflow_run.conclusion == 'success' 
       #&& 
       #(github.event.workflow_run.name == 'Stage 1 - Backend CI (Testing Branch)' || 
       # github.event.workflow_run.name == 'Stage 1 - Frontend CI (Testing Branch)')
-    runs-on: ubuntu-latest
-    environment: Staging
+  
     
     steps:
     - name: Checkout  repository
       uses: actions/checkout@v4
+
+    - name: Wait for all CI workflows to complete
+      run: |
+        echo "Waiting to ensure all CI workflows are complete..."
+        echo "This workflow was triggered by: ${{ github.event.workflow_run.name }}"
+        sleep 300  # Wait 5 minutes for other CI to complete
+    
 
     - name: Azure Login
       uses: azure/login@v1
