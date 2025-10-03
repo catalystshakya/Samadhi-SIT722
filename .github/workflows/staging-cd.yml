@@ -44,7 +44,7 @@ jobs:
       run: |
         echo "Waiting to ensure all CI workflows are complete..."
         echo "This workflow was triggered by: ${{ github.event.workflow_run.name }}"
-        sleep 300  # Wait 5 minutes for other CI to complete
+      #sleep 300  # Wait 5 minutes for other CI to complete
     
 
     - name: Azure Login
@@ -146,13 +146,14 @@ jobs:
       with:
         creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-    - name: Destroy Staging Resources
+    - name: Destroy Staging AKS Cluster Only
       run: |
-        echo "Destroying staging environment..."
-        az group delete \
-          --name ${{ env.STAGING_RG }} \
-          --yes \
-          --no-wait
-
+        echo "Destroying staging AKS cluster (keeping resource group)..."
+        az aks delete \
+        --resource-group ${{ env.STAGING_RG }} \
+        --name ${{ env.STAGING_CLUSTER_NAME }} \
+        --yes \
+        --no-wait
+   
     - name: Logout from Azure
       run: az logout
