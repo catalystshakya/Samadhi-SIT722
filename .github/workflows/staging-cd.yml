@@ -1,18 +1,14 @@
 name: Stage 2 - Staging Deployment
 
 on:
-  # linking to  trigger this CD workflow AFTER the Stage 1  workflows finishes
-  workflow_run:
-    # Name of the workflow that must finish first
-    workflows: 
+  workflow_run:  # linking to  trigger this CD workflow AFTER the Stage 1  workflows finishes
+    workflows: # Name of the workflow that must finish first
       - "Stage 1 - Backend CI (Testing Branch)"
       - "Stage 1 - Frontend CI (Testing Branch)"
-     # Only trigger when that workflow completes 
     types:
-      - completed
-     # Only trigger if the CI workflow ran on the testing branch
+      - completed # Only trigger when that workflow completes 
     branches:
-      - testing # Only automatically deploy to production when the changes have been thoroughly tested and successfully merged into the main branch
+      - testing  #Only trigger if the CI workflow ran on the testing branch
 
 
 env:
