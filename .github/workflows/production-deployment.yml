@@ -1,0 +1,188 @@
+name: Stage 3 - Production Deployment
+
+on:
+  push:
+    branches: [ master ] #main branch is called master in repo
+  pull_request:
+    branches: [ master ]
+    types: [closed]
+
+env:
+  ACR_LOGIN_SERVER: ${{ secrets.ACR_LOGIN_SERVER }}
+  ACR_NAME: ${{ secrets.AZURE_CONTAINER_REGISTRY }}
+  PRODUCTION_CLUSTER_NAME: ${{ secrets.AKS_CLUSTER_NAME }}
+  PRODUCTION_RG: ${{ secrets.ACR_RESOURCE_GROUP }}
+
+jobs:
+  deploy_backend_production:
+    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.action == 'closed' && github.event.pull_request.merged == true)
+    runs-on: ubuntu-latest
+    environment: Production
+
+    outputs:
+      product_ip: ${{ steps.get_backend_ips.outputs.product_ip }}
+      order_ip: ${{ steps.get_backend_ips.outputs.order_ip }}
+      customer_ip: ${{ steps.get_backend_ips.outputs.customer_ip }}
+    
+   
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Azure Login
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+    - name: Login to ACR
+      run: az acr login --name ${{ env.ACR_LOGIN_SERVER }}
+
+
+    - name: Get AKS credentials
+      run: |
+        az aks get-credentials \
+          --resource-group ${{ env.PRODUCTION_RG }} \
+          --name ${{ env.PRODUCTION_CLUSTER_NAME }} \
+          --overwrite-existing
+
+    - name:  Deploy Backend to Production
+      run: |
+        cd k8s/
+        kubectl apply -f configmaps.yaml
+        kubectl apply -f secrets.yaml
+        kubectl apply -f product-db.yaml
+        kubectl apply -f order-db.yaml
+        kubectl apply -f customer-db.yaml
+        kubectl apply -f product-service.yaml
+        kubectl apply -f order-service.yaml
+        kubectl apply -f customer-service.yaml
+
+    - name: Wait for Backend Services
+      run: |
+        echo "Waiting for backend services to be ready..."
+        kubectl wait --for=condition=ready pod -l app=product-service --timeout=300s
+        kubectl wait --for=condition=ready pod -l app=order-service --timeout=300s
+        kubectl wait --for=condition=ready pod -l app=customer-service --timeout=300s
+    
+    
+    - name: Get Backend IPs for Frontend
+      id: get_backend_ips
+      run: |
+        # Wait for LoadBalancer IPs
+        echo "Waiting for LoadBalancer IPs to be assigned..."
+        sleep 60
+        
+        PRODUCT_IP=$(kubectl get service product-service -o jsonpath='{.status.loadBalancer.ingress[0].ip}' --ignore-not-found=true)
+        ORDER_IP=$(kubectl get service order-service -o jsonpath='{.status.loadBalancer.ingress[0].ip}' --ignore-not-found=true)
+        CUSTOMER_IP=$(kubectl get service customer-service -o jsonpath='{.status.loadBalancer.ingress[0].ip}' --ignore-not-found=true)
+        
+        echo "Product IP: $PRODUCT_IP"
+        echo "Order IP: $ORDER_IP"
+        echo "Customer IP: $CUSTOMER_IP"
+
+              
+        echo "product_ip=$PRODUCT_IP" >> $GITHUB_OUTPUT 
+       
+        echo "order_ip=$ORDER_IP" >> $GITHUB_OUTPUT
+        echo "customer_ip=$CUSTOMER_IP" >> $GITHUB_OUTPUT
+
+    - name: Logout from Azure
+      run: az logout
+      if: always()
+
+
+  deploy_frontend_production:
+    runs-on: ubuntu-latest
+    needs: deploy_backend_production 
+    environment: Production
+  
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Azure Login
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+    - name: Login to ACR
+      run: az acr login --name ${{ env.ACR_NAME }}
+
+    - name: Build Frontend with Production IPs
+      run: |
+        echo "Building frontend with production backend IPs..."
+        echo "Product IP: ${{ needs.deploy_backend_production.outputs.product_ip }}"
+        echo "Order IP: ${{ needs.deploy_backend_production.outputs.order_ip }}"
+        echo "Customer IP: ${{ needs.deploy_backend_production.outputs.customer_ip }}"
+        
+        # Update main.js with production backend IPs -  FOR  PLACEHOLDERS
+        cp frontend/main.js frontend/main.js.backup
+        
+        if [ -n "${{ needs.deploy_backend_production.outputs.product_ip }}" ]; then
+          sed -i "s|_PRODUCT_API_URL_|http://${{ needs.deploy_backend_production.outputs.product_ip }}:8000|g" frontend/main.js
+        fi
+        if [ -n "${{ needs.deploy_backend_production.outputs.order_ip }}" ]; then
+          sed -i "s|_ORDER_API_URL_|http://${{ needs.deploy_backend_production.outputs.order_ip }}:8001|g" frontend/main.js
+        fi
+        if [ -n "${{ needs.deploy_backend_production.outputs.customer_ip }}" ]; then
+          sed -i "s|_CUSTOMER_API_BASE_URL|http://${{ needs.deploy_backend_production.outputs.customer_ip }}:8002|g" frontend/main.js
+        fi
+        
+        echo "Updated main.js content:"
+        cat frontend/main.js | grep "API_BASE_URL"
+        
+        # Build frontend with the updated configuration
+        docker build -t ${{ env.ACR_LOGIN_SERVER }}/frontend:latest ./frontend/
+        docker push ${{ env.ACR_LOGIN_SERVER }}/frontend:latest
+        
+        # Restore original main.js
+        mv frontend/main.js.backup frontend/main.js
+
+    - name: Get AKS credentials
+      run: |
+        az aks get-credentials \
+          --resource-group ${{ env.PRODUCTION_RG }} \
+          --name ${{ env.PRODUCTION_CLUSTER_NAME }} \
+          --overwrite-existing
+
+    - name: Deploy Frontend to Production
+      run: |
+        cd k8s/
+        # Update the existing frontend.yaml with production backend IPs
+        cp frontend.yaml frontend.yaml.backup
+        
+        # Update the frontend config map or environment variables with backend IPs
+        if [ -n "${{ needs.deploy_backend_production.outputs.product_ip }}" ]; then
+          sed -i "s|_PRODUCT_API_URL_|http://${{ needs.deploy_backend_production.outputs.product_ip }}:8000|g" frontend.yaml
+        fi
+        if [ -n "${{ needs.deploy_backend_production.outputs.order_ip }}" ]; then
+          sed -i "s|_ORDER_API_URL_|http://${{ needs.deploy_backend_production.outputs.order_ip }}:8001|g" frontend.yaml
+        fi
+        if [ -n "${{ needs.deploy_backend_production.outputs.customer_ip }}" ]; then
+          sed -i "s|_CUSTOMER_API_BASE_URL|http://${{ needs.deploy_backend_production.outputs.customer_ip }}:8002|g" frontend.yaml
+        fi
+        
+        kubectl apply -f frontend.yaml
+        
+        # Restore original frontend.yaml
+        mv frontend.yaml.backup frontend.yaml
+
+    - name: Wait for Frontend Deployment
+      run: |
+        kubectl rollout status deployment/frontend --timeout=300s
+
+    - name: Verify Deployment
+      run: |
+        echo "Production deployment complete!"
+        echo "Backend Services:"
+        echo "- Product: http://${{ needs.deploy_backend_production.outputs.product_ip }}:8000"
+        echo "- Order: http://${{ needs.deploy_backend_production.outputs.order_ip }}:8001" 
+        echo "- Customer: http://${{ needs.deploy_backend_production.outputs.customer_ip }}:8002"
+        
+        # Get frontend IP
+        FRONTEND_IP=$(kubectl get service frontend -o jsonpath='{.status.loadBalancer.ingress[0].ip}' --ignore-not-found=true)
+        echo "Frontend: http://$FRONTEND_IP"
+
+    - name: Logout from Azure
+      run: az logout
+      if: always()

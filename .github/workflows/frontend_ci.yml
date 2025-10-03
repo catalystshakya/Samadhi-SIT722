@@ -1,0 +1,112 @@
+# github/workflows/frontend_ci.yml
+
+name: Stage 1 - Frontend CI (Testing Branch)
+
+on:
+  push:
+    branches: [ testing ]
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/frontend_ci.yml'
+
+# Define global environment variables that can be used across jobs
+env:
+  # ACR Login Server (e.g., myregistry.azurecr.io)
+  # This needs to be set as a GitHub Repository Secret
+  ACR_LOGIN_SERVER: ${{ secrets.ACR_LOGIN_SERVER }}
+  # Dynamically generate image tags based on Git SHA and GitHub Run ID
+  # This provides unique, traceable tags for each image build
+  IMAGE_TAG: ${{ github.sha }}-${{ github.run_id }}
+
+jobs:
+  # Job 1: Run tests 
+  test_frontend:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js (if you have Node.js tests)
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: frontend/package-lock.json
+    
+    - name: Install dependencies (if package.json exists)
+      working-directory: frontend
+      run: |
+        if [ -f "package.json" ]; then
+          npm ci
+        else
+          echo "No package.json found - skipping npm install"
+        fi
+
+    - name: Run HTML validation tests
+      run: |
+        echo "Running HTML validation..."
+        # Check if index.html exists and is valid
+        if [ -f "frontend/index.html" ]; then
+          echo "✓ index.html exists"
+          # Basic HTML validation
+          if grep -q "<html" frontend/index.html && grep -q "<\/html>" frontend/index.html; then
+            echo "✓ HTML structure appears valid"
+          else
+            echo "✗ HTML structure issues found"
+            exit 1
+          fi
+        else
+          echo "✗ index.html not found"
+          exit 1
+        fi
+      
+    - name: Run JavaScript syntax validation
+      run: |
+        echo "Running JavaScript validation..."
+        # Check if main.js exists and has basic syntax
+        if [ -f "frontend/main.js" ]; then
+          echo "✓ main.js exists"
+          # Basic JS syntax check using node
+          if node -c frontend/main.js 2>/dev/null; then
+            echo "✓ JavaScript syntax is valid"
+          else
+            echo "✗ JavaScript syntax errors found"
+            exit 1
+          fi
+        else
+          echo "✗ main.js not found"
+          exit 1
+        fi
+
+#Then build and push 
+  build_and_push_frontend:
+    runs-on: ubuntu-latest
+    needs: test_frontend
+    if: ${{ needs.test_frontend.result == 'success' }} 
+     #Only build/push on success
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    # Azure login using a Service Principal secret
+    - name: Azure Login
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+    # Login to Azure Container Registry (ACR)
+    - name: Login to Azure Container Registry
+      run: az acr login --name ${{ env.ACR_LOGIN_SERVER }}
+
+    # Build and Push Docker image for Frontend
+    - name: Build and Push Frontend Image
+      run: |
+        docker build -t ${{ env.ACR_LOGIN_SERVER }}/frontend:latest ./frontend/
+        docker push ${{ env.ACR_LOGIN_SERVER }}/frontend:latest
+
+    # Logout from Azure for security (runs even if image push fails)
+    - name: Logout from Azure
+      run: az logout
+      if: always()

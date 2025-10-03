@@ -1,0 +1,145 @@
+name: Stage 2 - Staging Deployment
+
+on:
+  # linking to  trigger this CD workflow AFTER the Stage 1  workflows finishes
+  workflow_run:
+    # Name of the workflow that must finish first
+     workflows: 
+      - "Stage 1 - Backend CI (Testing Branch)"
+      - "Stage 1 - Frontend CI (Testing Branch)"
+     # Only trigger when that workflow completes 
+     types:
+      - completed
+     # Only trigger if the CI workflow ran on the testing branch
+     branches:
+      - testing # Only automatically deploy to production when the changes have been thoroughly tested and successfully merged into the main branch
+
+env:
+  STAGING_CLUSTER_NAME: "staging-aks-${{ github.run_id }}"
+  STAGING_RG: "staging-rg-${{ github.run_id }}"
+  ACR_NAME: ${{ secrets.AZURE_CONTAINER_REGISTRY }}
+
+
+
+jobs:
+  deploy_to_staging: # CRITICAL: Only run this job if the stage one CI workflow was SUCCESSFUL
+    # This prevents auto-deploying if tests failed
+    if: >-
+      github.event.workflow_run.conclusion == 'success' && 
+      (github.event.workflow_run.name == 'Stage 1 - Backend CI (Testing Branch)' || 
+       github.event.workflow_run.name == 'Stage 1 - Frontend CI (Testing Branch)')
+    runs-on: ubuntu-latest
+    environment: Staging
+    
+    steps:
+    - name: Checkout  repository
+      uses: actions/checkout@v4
+
+    - name: Azure Login
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+    - name: Create Staging Resource Group
+      run: |
+        az group create \
+          --name ${{ env.STAGING_RG }} \
+          --location australiaeast \
+          --tags Environment=Staging Temporary=true
+
+    - name: Create Temporary Staging AKS Cluster
+      run: |
+        az aks create \
+          --resource-group ${{ env.STAGING_RG }} \
+          --name ${{ env.STAGING_CLUSTER_NAME }} \
+          --node-count 1 \
+          --enable-managed-identity \
+          --attach-acr ${{ env.ACR_NAME }} \
+          --generate-ssh-keys \
+          --tags Environment=Staging Temporary=true
+
+    - name: Get AKS credentials
+      run: |
+        az aks get-credentials \
+          --resource-group ${{ env.STAGING_RG }} \
+          --name ${{ env.STAGING_CLUSTER_NAME }} \
+          --overwrite-existing
+
+    - name: Deploy Backend Services to Staging
+      run: |
+        cd k8s/
+        kubectl apply -f configmaps.yaml
+        kubectl apply -f secrets.yaml
+        kubectl apply -f product-db.yaml
+        kubectl apply -f order-db.yaml
+        kubectl apply -f customer-db.yaml
+        kubectl apply -f product-service.yaml
+        kubectl apply -f order-service.yaml
+        kubectl apply -f customer-service.yaml
+
+    - name: Wait for Backend Services
+      run: |
+        kubectl wait --for=condition=ready pod -l app=product-service --timeout=300s
+        kubectl wait --for=condition=ready pod -l app=order-service --timeout=300s
+        kubectl wait --for=condition=ready pod -l app=customer-service --timeout=300s
+
+    - name: Get Backend IPs for Frontend
+      id: get_ips
+      run: |
+        # Wait for LoadBalancer IPs
+        sleep 30
+        PRODUCT_IP=$(kubectl get service product-service -o jsonpath='{.status.loadBalancer.ingress[0].ip}' --ignore-not-found=true)
+        ORDER_IP=$(kubectl get service order-service -o jsonpath='{.status.loadBalancer.ingress[0].ip}' --ignore-not-found=true)
+        CUSTOMER_IP=$(kubectl get service customer-service -o jsonpath='{.status.loadBalancer.ingress[0].ip}' --ignore-not-found=true)
+        
+        echo "product_ip=$PRODUCT_IP" >> $GITHUB_OUTPUT
+        echo "order_ip=$ORDER_IP" >> $GITHUB_OUTPUT
+        echo "customer_ip=$CUSTOMER_IP" >> $GITHUB_OUTPUT
+
+    - name: Deploy Frontend to Staging
+      run: |
+        cd k8s/
+        # Update frontend config with backend IPs
+        sed -i "s|_PRODUCT_API_URL_|http://${{ steps.get_ips.outputs.product_ip }}:8000|g" frontend.yaml
+        sed -i "s|_ORDER_API_URL_|http://${{ steps.get_ips.outputs.order_ip }}:8001|g" frontend.yaml
+        sed -i "s|_CUSTOMER_API_URL_|http://${{ steps.get_ips.outputs.customer_ip }}:8002|g" frontend.yaml
+        
+        kubectl apply -f frontend.yaml
+
+    - name: Run Automated Acceptance Tests
+      run: |
+        echo "Running basic acceptance tests..."
+        # Simple smoke tests
+        curl -f http://${{ steps.get_ips.outputs.product_ip }}:8000/health || exit 1
+        curl -f http://${{ steps.get_ips.outputs.order_ip }}:8001/health || exit 1
+        curl -f http://${{ steps.get_ips.outputs.customer_ip }}:8002/health || exit 1
+        echo "✓ All services are responding"
+
+    - name: Manual Testing Approval
+      uses: trstringer/manual-approval@v1
+      with:
+        secret: ${{ github.token }}
+        approvers: ${{ vars.APPROVERS || github.actor }}
+        minimum-approvals: 1
+
+  destroy_staging:
+    runs-on: ubuntu-latest
+    needs: deploy_to_staging
+    if: always()
+    
+    steps:
+    - name: Azure Login
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+    - name: Destroy Staging Resources
+      run: |
+        echo "Destroying staging environment..."
+        az group delete \
+          --name ${{ env.STAGING_RG }} \
+          --yes \
+          --no-wait
+
+    - name: Logout from Azure
+      run: az logout
