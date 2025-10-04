@@ -90,11 +90,11 @@ jobs:
         kubectl apply -f order-service.yaml
         kubectl apply -f customer-service.yaml
 
-    - name: Wait for Backend Services
-      run: |
-        kubectl wait --for=condition=ready pod -l app=product-service --timeout=300s
-        kubectl wait --for=condition=ready pod -l app=order-service --timeout=300s
-        kubectl wait --for=condition=ready pod -l app=customer-service --timeout=300s
+    #- name: Wait for Backend Services
+     # run: |
+     #   kubectl wait --for=condition=ready pod -l app=product-service --timeout=300s
+     #   kubectl wait --for=condition=ready pod -l app=order-service --timeout=300s
+     #   kubectl wait --for=condition=ready pod -l app=customer-service --timeout=180s
 
     - name: Get Backend IPs for Frontend
       id: get_ips
